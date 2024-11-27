@@ -10,47 +10,7 @@ The backend is responsible for authenticating users via Azure AD, generating a J
 
 ### 2. Backend Project Structure
 
-#### Configuration File
-
-The `config.py` file is used to store application-wide configurations, such as Azure AD credentials, database settings, and JWT secret keys. Below is an example:
-
-```python
-# File: utils/config.py
-
-import os
-
-class Config:
-    # Azure AD Configuration
-    AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
-    AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
-    AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID')
-    AZURE_REDIRECT_URI = os.getenv('AZURE_REDIRECT_URI')
-
-    # Database Configuration
-    DATABASE_URL = os.getenv('DATABASE_URL')
-
-    # JWT Configuration
-    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
-    JWT_ALGORITHM = "HS256"
-
-config = Config()
-```
-
-### 2. Backend Project Structure
-
-#### Callback Endpoint
-
-The callback endpoint is an essential part of the Azure AD authentication flow. This endpoint handles the authorization code returned by Azure AD after successful login and uses it to fetch user details.
-
-- **Purpose:**
-
-  - Exchanges the authorization code for an access token.
-  - Retrieves user information from Azure AD.
-  - Updates or inserts user details in the database.
-  - Generates a JWT token for the frontend.
-
-- **Implementation:**
-  Ensure that the callback endpoint is protected and securely processes the authorization code returned by Azure AD. Include validation checks to ensure no unauthorized access occurs.
+Below is the organized structure of the backend application. Each file and directory serves a specific role to maintain a modular and scalable codebase:
 
 ```
 /backend
@@ -80,12 +40,38 @@ The callback endpoint is an essential part of the Azure AD authentication flow. 
     ├── test_user.py           # Unit tests for user routes
 ```
 
+#### Configuration File
+
+The `config.py` file is used to store application-wide configurations, such as Azure AD credentials, database settings, and JWT secret keys. Below is an example:
+
+```python
+# File: utils/config.py
+
+import os
+
+class Config:
+    # Azure AD Configuration
+    AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
+    AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
+    AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID')
+    AZURE_REDIRECT_URI = os.getenv('AZURE_REDIRECT_URI')
+
+    # Database Configuration
+    DATABASE_URL = os.getenv('DATABASE_URL')
+
+    # JWT Configuration
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+    JWT_ALGORITHM = "HS256"
+
+config = Config()
+```
+
 ### 3. Backend Implementation Details
 
 #### Required Routes
 
-- **POST /login**: Handles user login, retrieves Azure AD user details, and generates a JWT token.
-- **GET /callback**: Processes the Azure AD authorization code and finalizes the authentication.
+- **GET /login**: Redirects the user to Azure AD for authentication.
+- **GET /callback**: Processes the Azure AD authorization code, retrieves tokens, and finalizes the authentication.
 - **GET /user**: Fetches user profile information for the frontend.
 - **POST /logout**: Handles user logout by invalidating JWT tokens.
 
@@ -99,9 +85,19 @@ The entire OAuth flow is implemented using `authlib`. Below are the steps:
 4. **JWT Token Generation**: Generates a JWT token for the frontend.
 5. **User Management**: Inserts or updates the user in the MS SQL database.
 
-#### File: `auth/azure_auth.py`
+#### Callback Endpoint
 
-Handles Azure AD integration logic to authenticate users and retrieve their profile details.
+The callback endpoint is an essential part of the Azure AD authentication flow. This endpoint handles the authorization code returned by Azure AD after successful login and uses it to fetch user details.
+
+- **Purpose:**
+
+  - Exchanges the authorization code for an access token.
+  - Retrieves user information from Azure AD.
+  - Updates or inserts user details in the database.
+  - Generates a JWT token for the frontend.
+
+- **Implementation:**
+  Ensure that the callback endpoint is protected and securely processes the authorization code returned by Azure AD. Include validation checks to ensure no unauthorized access occurs.
 
 #### File: `auth/jwt_handler.py`
 
@@ -157,8 +153,13 @@ from db.database import get_db
 
 router = APIRouter()
 
-@router.post("/login")
-async def login(code: str, db: Session = Depends(get_db)):
+@router.get("/login")
+async def login():
+    # Redirect user to Azure AD
+    return {"message": "Redirect to Azure AD"}
+
+@router.get("/callback")
+async def callback(code: str, db: Session = Depends(get_db)):
     user_info = authenticate_user(code)  # Call Azure AD for user info
     upsert_user(db, user_info["id"], user_info["email"], user_info["name"])  # Insert/update user in DB
     token = create_jwt_token(user_info["id"])
