@@ -1,223 +1,96 @@
-# Azure AD Integration with Backend and JWT Authentication
+# Integration with Azure AD for Backend Authentication
 
-This document outlines the integration of Azure AD for user authentication on the backend, using JWT tokens for the frontend to authenticate API requests. The document also includes project structures for both backend and frontend and details their key components.
+## Overview
+This document outlines the steps to integrate Azure Active Directory (Azure AD) with the backend system for user authentication. After successful authentication, the backend will issue a JSON Web Token (JWT) to the frontend for subsequent authenticated requests. Additionally, user details will be inserted or updated in an MS SQL table.
 
-## Backend Integration with Azure AD
-
-### 1. Overview
-The backend is responsible for authenticating users via Azure AD, generating a JWT token upon successful login, and managing user details in an MS SQL database. The backend communicates with Azure AD to retrieve user details and validates the authentication process.
-
-### 2. Backend Project Structure
-```
-/backend
-├── app/
-│   ├── __init__.py
-│   ├── main.py                # Application entry point
-│   ├── auth/
-│   │   ├── __init__.py
-│   │   ├── azure_auth.py      # Azure AD integration logic
-│   │   ├── jwt_handler.py     # JWT generation and validation
-│   ├── db/
-│   │   ├── __init__.py
-│   │   ├── database.py        # Database connection setup
-│   │   ├── user_crud.py       # User CRUD operations
-│   ├── models/
-│   │   ├── user_model.py      # User model definitions
-│   ├── routes/
-│   │   ├── auth_routes.py     # Authentication routes
-│   │   ├── user_routes.py     # User-related routes
-│   ├── schemas/
-│   │   ├── user_schema.py     # Pydantic schemas for user data
-│   ├── utils/
-│       ├── config.py          # Configuration and environment variables
-│       ├── logging.py         # Logging setup
-└── tests/
-    ├── test_auth.py           # Unit tests for authentication
-    ├── test_user.py           # Unit tests for user routes
-```
-
-### 3. Backend Implementation Details
-
-#### File: `auth/azure_auth.py`
-Handles Azure AD integration logic to authenticate users and retrieve their profile details.
-
-#### File: `auth/jwt_handler.py`
-Generates and validates JWT tokens:
-```python
-from datetime import datetime, timedelta
-import jwt
-
-SECRET_KEY = "your_secret_key"
-ALGORITHM = "HS256"
-
-# Generate a JWT token
-def create_jwt_token(user_id: str):
-    payload = {
-        "sub": user_id,
-        "exp": datetime.utcnow() + timedelta(hours=1),
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-```
-
-#### File: `db/user_crud.py`
-Inserts or updates user details in the MS SQL database:
-```python
-from sqlalchemy.orm import Session
-from models.user_model import User
-from datetime import datetime
-
-def upsert_user(session: Session, user_id: str, email: str, name: str):
-    user = session.query(User).filter(User.user_id == user_id).first()
-    if user:
-        user.last_login = datetime.utcnow()
-        user.email = email
-        user.name = name
-    else:
-        user = User(user_id=user_id, email=email, name=name, last_login=datetime.utcnow())
-        session.add(user)
-    session.commit()
-```
-
-#### File: `routes/auth_routes.py`
-Provides an endpoint for login and JWT token generation:
-```python
-from fastapi import APIRouter, Depends
-from auth.azure_auth import authenticate_user
-from auth.jwt_handler import create_jwt_token
-from db.user_crud import upsert_user
-from db.database import get_db
-
-router = APIRouter()
-
-@router.post("/login")
-async def login(code: str, db: Session = Depends(get_db)):
-    user_info = authenticate_user(code)  # Call Azure AD for user info
-    upsert_user(db, user_info["id"], user_info["email"], user_info["name"])  # Insert/update user in DB
-    token = create_jwt_token(user_info["id"])
-    return {"token": token}
-```
+## Objectives
+1. Authenticate users via Azure AD.
+2. Issue a JWT token to the frontend upon successful login.
+3. Use the JWT token to authorize requests to the backend.
+4. Insert or update user details in an MS SQL database.
+5. Ensure secure communication and token management.
 
 ---
 
-## Frontend Project Structure and JWT Authentication
+## Steps for Integration
 
-### 1. Overview
-The frontend interacts with the backend for authentication and user profile management. JWT tokens issued by the backend are used to authenticate API requests.
+### 1. **Set Up Azure AD Application**
+1. Log in to the [Azure Portal](https://portal.azure.com/).
+2. Navigate to **Azure Active Directory** > **App registrations** > **New registration**.
+   - **Name:** `YourAppName`
+   - **Supported account types:** Choose the appropriate option for your use case (e.g., "Accounts in this organizational directory only").
+   - **Redirect URI:** Add the backend callback URL (e.g., `https://your-backend-url/api/auth/callback`).
+3. Click **Register**.
+4. Note down the following values:
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
+5. Navigate to **Certificates & secrets** and create a new client secret.
+   - Note down the secret value.
 
-### 2. Frontend Project Structure
-```
-/frontend
-├── src/
-│   ├── app/
-│   │   ├── auth/
-│   │   │   ├── auth.service.ts          # Service for handling authentication
-│   │   │   ├── jwt.interceptor.ts       # Interceptor for attaching JWT to requests
-│   │   ├── user-profile/
-│   │       ├── user-profile.component.ts # Displays user details
-│   │       ├── user-profile.component.html
-│   │       ├── user-profile.component.css
-│   ├── assets/                          # Static assets
-│   ├── environments/                    # Environment-specific configurations
-└── tests/                               # End-to-end tests
-```
+### 2. **Backend Configuration**
 
-### 3. Frontend Implementation Details
+#### a. Configuration File
+Create a configuration file to store Azure AD details:
 
-#### File: `auth/auth.service.ts`
-Handles login and fetching user data from the backend:
-```typescript
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+- **CLIENT_ID:** Application (client) ID from Azure AD.
+- **CLIENT_SECRET:** The secret generated in the Certificates & secrets section.
+- **TENANT_ID:** Directory (tenant) ID.
+- **AUTHORITY:** Authority URL for Azure AD.
+- **REDIRECT_URI:** Backend callback URL for Azure AD authentication.
+- **JWT_SECRET:** Secret key used for signing JWT tokens.
+- **JWT_ALGORITHM:** Algorithm for JWT signing (e.g., HS256).
+- **DATABASE_URL:** Connection string for MS SQL database.
 
-@Injectable({
-  providedIn: 'root',
-})
-export class AuthService {
-  private apiUrl = 'http://localhost:3000/api'; // Backend API URL
+#### b. Authentication Flow
+1. Implement the Azure AD authentication flow to handle OAuth 2.0 and OpenID Connect.
+2. Define endpoints for login and callback to interact with Azure AD.
+3. Extract user details (e.g., email, name) from the ID token provided by Azure AD.
 
-  constructor(private http: HttpClient) {}
+### 3. **User Details Management**
+1. Create a table in MS SQL to store user information:
+   ```sql
+   CREATE TABLE Users (
+       UserID NVARCHAR(255) PRIMARY KEY,
+       Email NVARCHAR(255) NOT NULL,
+       Name NVARCHAR(255),
+       LastLogin DATETIME NOT NULL
+   );
+   ```
+2. Connect to the database and manage the `Users` table.
+3. Implement a function to insert or update user details in the database during authentication.
 
-  login(code: string): Observable<any> {
-    return this.http.post(`${this.apiUrl}/login`, { code });
-  }
+### 4. **Frontend Integration**
+1. After logging in, the backend returns a JWT token.
+2. Store the token securely on the frontend (e.g., HTTP-only cookies or secure storage).
+3. Use the token to authenticate subsequent API requests by including it in the `Authorization` header:
+   ```http
+   Authorization: Bearer <your-jwt-token>
+   ```
 
-  getUserProfile(): Observable<any> {
-    return this.http.get(`${this.apiUrl}/user`);
-  }
-}
-```
+### 5. **Secure the Endpoints**
+Add JWT-based authorization to secure specific endpoints in your backend:
+1. Decode and validate the JWT token in the request header.
+2. Return an error if the token is invalid or expired.
+3. Allow access to protected routes only for authenticated users.
 
-#### File: `auth/jwt.interceptor.ts`
-Attaches JWT tokens to outgoing HTTP requests:
-```typescript
-import { Injectable } from '@angular/core';
-import { HttpInterceptor, HttpRequest, HttpHandler, HttpEvent } from '@angular/common/http';
-import { Observable } from 'rxjs';
+### 6. **Token Expiry and Refresh**
+- Azure AD issues tokens with an expiry time (e.g., 1 hour).
+- Use refresh tokens from Azure AD to acquire new tokens without requiring the user to log in again.
 
-@Injectable()
-export class JwtInterceptor implements HttpInterceptor {
-  intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    const token = localStorage.getItem('token');
-    if (token) {
-      req = req.clone({
-        setHeaders: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-    }
-    return next.handle(req);
-  }
-}
-```
-
-#### File: `user-profile/user-profile.component.ts`
-Displays user details fetched from the backend:
-```typescript
-import { Component, OnInit } from '@angular/core';
-import { AuthService } from '../auth/auth.service';
-
-@Component({
-  selector: 'app-user-profile',
-  templateUrl: './user-profile.component.html',
-  styleUrls: ['./user-profile.component.css'],
-})
-export class UserProfileComponent implements OnInit {
-  user: any;
-
-  constructor(private authService: AuthService) {}
-
-  ngOnInit(): void {
-    this.authService.getUserProfile().subscribe((data) => {
-      this.user = data;
-    });
-  }
-}
-```
+### 7. **Testing**
+1. Test the login flow by visiting `/auth/login`.
+2. Verify that a JWT is returned after authentication.
+3. Use the JWT to access protected routes.
 
 ---
 
-## Integration Flow Diagrams
-
-### Backend Architecture
-```
-Frontend <---> Backend
-                 |
-                 +--> Azure AD (Authentication)
-                 |
-                 +--> MS SQL (User Database)
-                 |
-                 +--> JWT (Token Management)
-```
-
-### Frontend JWT Authentication Flow
-1. User logs in via frontend.
-2. Frontend sends a login request to the backend.
-3. Backend authenticates with Azure AD, updates user details in MS SQL, and returns a JWT.
-4. Frontend uses the JWT for subsequent API requests.
+## Security Considerations
+1. **Store Secrets Securely:** Use environment variables or secure vaults to store Azure AD credentials and JWT signing secrets.
+2. **HTTPS:** Ensure all communication between the frontend, backend, and Azure AD is encrypted.
+3. **Token Expiry:** Regularly refresh tokens and handle token expiration gracefully.
+4. **Scopes:** Limit the scopes requested from Azure AD to the minimum necessary for your application.
 
 ---
 
-### Summary
-This document provides a comprehensive guide for integrating Azure AD on the backend with JWT-based authentication for the frontend. The project structure and key components for both backend and frontend are detailed to facilitate implementation.
-
+## Summary
+This integration enables secure user authentication via Azure AD and leverages JWT tokens for authorizing requests between the frontend and backend. User details are inserted or updated in an MS SQL database to maintain a record of authenticated users. Ensure robust error handling and security practices to protect user data and application integrity.
